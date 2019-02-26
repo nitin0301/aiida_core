@@ -11,18 +11,20 @@
 Module containing utilities and classes relating to job calculations running
 on systems that require transport.
 """
-
 from __future__ import division
 from __future__ import print_function
 from __future__ import absolute_import
+
 import contextlib
-from functools import partial
+import functools
 import time
+
 from six import iteritems, itervalues
 from tornado import concurrent, gen
 
 from aiida import scheduler as schedulers
 from aiida.common import exceptions
+from aiida.common.log import aiidalogger
 from .utils import RefObjectStore
 
 __all__ = tuple()
@@ -49,6 +51,11 @@ class JobsList(object):
         self._last_updated = None  # type: float
         self._job_update_requests = {}  # Mapping: {job_id: Future}
         self._update_handle = None
+        self._logger = aiidalogger.getChild('calcjobs')
+
+    @property
+    def logger(self):
+        return self._logger
 
     def get_minimum_update_interval(self):
         """
@@ -88,6 +95,9 @@ class JobsList(object):
                 kwargs['jobs'] = self._get_jobs_with_scheduler()
 
             scheduler_response = scheduler.getJobs(**kwargs)
+            self._last_updated = time.time()
+            self.logger.info('AuthInfo<{}>: successfully retrieved status of active jobs'.format(self._authinfo.pk))
+
             jobs_cache = {}
 
             for job_id, job_info in iteritems(scheduler_response):
@@ -143,7 +153,7 @@ class JobsList(object):
         """
         # Get or create the future
         request = self._job_update_requests.setdefault(job_id, concurrent.Future())
-        assert not request.done(), "The future should be no be in the done state"
+        assert not request.done(), 'The future should be no be in the done state'
 
         try:
             self._ensure_updating()
@@ -184,8 +194,7 @@ class JobsList(object):
             # One is None and the other isn't
             return True
 
-        return old.job_state != new.job_state or \
-               old.job_substate != new.job_substate
+        return old.job_state != new.job_state or old.job_substate != new.job_substate
 
     def _get_next_update_delay(self):
         """
@@ -197,6 +206,7 @@ class JobsList(object):
         :rtype: float
         """
         if self._last_updated is None:
+            self.logger.info('AuthInfo<{}>: next scheduler update will be in {} seconds'.format(self._authinfo.pk, 0))
             # Never updated, so do it straight away
             return 0.
 
@@ -205,7 +215,10 @@ class JobsList(object):
         minimum_interval = self._authinfo.computer.get_minimum_job_poll_interval()
         elapsed = time.time() - self._last_updated
 
-        return max(minimum_interval - elapsed, 0.)
+        delay = max(minimum_interval - elapsed, 0.)
+        self.logger.info('AuthInfo<{}>: next scheduler update will be in {} seconds'.format(self._authinfo.pk, delay))
+
+        return delay
 
     def _update_requests_outstanding(self):
         return any(not request.done() for request in itervalues(self._job_update_requests))
@@ -239,7 +252,7 @@ class JobManager(object):
         :rtype: :class:`tornado.concurrent.Future`
         """
         # Define a way to create a JobsList if needed
-        create = partial(JobsList, authinfo, self._transport_queue)
+        create = functools.partial(JobsList, authinfo, self._transport_queue)
 
         with self._job_lists.get(authinfo.id, create) as job_list:
             with job_list.request_job_info_update(job_id) as request:

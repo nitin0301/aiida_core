@@ -371,5 +371,7 @@ class RefObjectStore(object):
             with ref.get() as obj:
                 yield obj
         finally:
-            if ref.count == 0:
-                self._objects.pop(identifier)
+            pass
+            # if ref.count == 0:
+            #     print('Popping object with id<{}>'.format(identifier))
+            #     self._objects.pop(identifier)

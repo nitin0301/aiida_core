@@ -183,6 +183,7 @@ def task_update_job(node, job_manager, cancellable):
     def do_update():
         # Get the update request
         with job_manager.request_job_info_update(authinfo, job_id) as update_request:
+            logger.info('updating calculation<{}>'.format(node.pk))
             job_info = yield cancellable.with_interrupt(update_request)
 
         if job_info is None:
